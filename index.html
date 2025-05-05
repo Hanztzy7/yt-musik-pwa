@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>YouTube Music Player</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1db954">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon-192.png" type="image/png">
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background-color: #121212;
+      color: #fff;
+      text-align: center;
+      padding: 20px;
+    }
+    h1 {
+      font-size: 2.2em;
+      margin-bottom: 18px;
+    }
+    input {
+      width: 90%;
+      max-width: 300px;
+      padding: 10px;
+      border-radius: 5px;
+      border: none;
+      font-size: 16px;
+      margin-bottom: 8px;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 5px;
+      font-size: 16px;
+      background-color: #1db954;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button.bg-on {
+      background-color: #ff9800;
+    }
+    #results {
+      margin-top: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+    }
+    .video-thumb {
+      width: 150px;
+      cursor: pointer;
+      transition: transform 0.2s;
+      border-radius: 5px;
+    }
+    .video-thumb:hover {
+      transform: scale(1.05);
+    }
+    iframe {
+      margin-top: 20px;
+      width: 100%;
+      max-width: 560px;
+      height: 315px;
+      border-radius: 10px;
+      background: #000;
+    }
+    #playlist {
+      margin-top: 20px;
+      font-size: 14px;
+      text-align: left;
+      max-width: 600px;
+      margin-inline: auto;
+    }
+    .playlist-item {
+      padding: 5px;
+      cursor: pointer;
+    }
+    .playlist-item:hover {
+      background-color: #1e1e1e;
+    }
+    #bg-audio-status {
+      margin: 10px 0;
+      font-size: 16px;
+      color: #ff9800;
+      user-select: none;
+    }
+    #info-awal {
+      margin: 20px 0 0 0;
+      color: #aaa;
+      font-size: 1em;
+    }
+    .error-message {
+      color: #ff4f4f;
+      margin: 18px 0;
+      font-size: 1.1em;
+    }
+    @media (max-width: 600px) {
+      .video-thumb {
+        width: 100px;
+      }
+      iframe {
+        height: 180px;
+      }
+      #playlist {
+        font-size: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>YouTube Music Player</h1>
+  <input type="text" id="searchQuery" placeholder="Cari lagu...">
+  <button onclick="searchYouTube()">Cari</button>
+  <div id="info-awal">Masukkan judul lagu lalu klik "Cari"</div>
+  <div id="results"></div>
+  <div id="player"></div>
+  <div id="playlist"></div>
+  <div id="bg-audio-status">Audio latar: Tidak aktif</div>
+  <button onclick="stopBackgroundAudio()">Hentikan Audio Latar</button>
+
+  <script>
+    const API_KEY = 'AIzaSyCsSs1OLfRBasd-ozF6ZtQ4MouEK-W3Tkg';
+    let playlist = [];
+    let currentIndex = 0;
+    let bgAudioId = null;
+    let bgAudioActive = false;
+
+    function searchYouTube() {
+      const query = document.getElementById('searchQuery').value.trim();
+      document.getElementById('results').innerHTML = '';
+      document.getElementById('player').innerHTML = '';
+      document.getElementById('playlist').innerHTML = '';
+      document.getElementById('info-awal').style.display = "none";
+      playlist = [];
+      currentIndex = 0;
+
+      if (!query) {
+        document.getElementById('info-awal').style.display = "block";
+        return;
+      }
+
+      document.getElementById('results').innerHTML = "<div style='color:#aaa;'>Sedang mencari...</div>";
+
+      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=video&maxResults=5&key=${API_KEY}`)
+        .then(response => response.json())
+        .then(data => {
+          document.getElementById('results').innerHTML = '';
+          if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+            document.getElementById('results').innerHTML = "<div class='error-message'>Tidak ada hasil ditemukan.</div>";
+            return;
+          }
+          data.items.forEach((item, index) => {
+            const videoId = item.id.videoId;
+            const title = item.snippet.title;
+            const thumb = item.snippet.thumbnails.medium.url;
+            const container = document.createElement('div');
+            container.style.display = 'flex';
+            container.style.flexDirection = 'column';
+            container.style.alignItems = 'center';
+            const img = document.createElement('img');
+            img.src = thumb;
+            img.className = 'video-thumb';
+            img.alt = title;
+            img.onclick = () => {
+              currentIndex = index;
+              playVideo(videoId);
+            };
+            const audioBtn = document.createElement('button');
+            audioBtn.textContent = 'Putar Audio (Latar)';
+            audioBtn.className = (bgAudioActive && bgAudioId === videoId) ? 'bg-on' : '';
+            audioBtn.onclick = () => toggleBackgroundAudio(videoId, title, audioBtn);
+            container.appendChild(img);
+            container.appendChild(audioBtn);
+            document.getElementById('results').appendChild(container);
+            playlist.push({ videoId, title });
+          });
+          renderPlaylist();
+        })
+        .catch(err => {
+          document.getElementById('results').innerHTML = "<div class='error-message'>Gagal menghubungi YouTube API.<br>Cek koneksi internet atau API Key.</div>";
+        });
+    }
+
+    function playVideo(videoId) {
+      const player = document.getElementById('player');
+      player.innerHTML = `
+        <iframe id="ytplayer"
+          src="https://www.youtube.com/embed/${videoId}?autoplay=1&enablejsapi=1"
+          frameborder="0"
+          allow="autoplay; encrypted-media"
+          allowfullscreen></iframe>
+      `;
+    }
+
+    function renderPlaylist() {
+      const list = document.getElementById('playlist');
+      list.innerHTML = '<h3>Playlist:</h3>';
+      playlist.forEach((item, i) => {
+        const div = document.createElement('div');
+        div.textContent = (i + 1) + '. ' + item.title;
+        div.className = 'playlist-item';
+        div.onclick = () => {
+          currentIndex = i;
+          playVideo(item.videoId);
+        };
+        list.appendChild(div);
+      });
+    }
+
+    function toggleBackgroundAudio(videoId, title, btn) {
+      if (bgAudioActive && bgAudioId === videoId) {
+        stopBackgroundAudio();
+        return;
+      }
+
+      bgAudioId = videoId;
+      bgAudioActive = true;
+
+      const existing = document.getElementById('bgAudioFrame');
+      const src = `https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0&loop=1&playlist=${videoId}`;
+
+      if (existing) {
+        existing.src = src;
+      } else {
+        const iframe = document.createElement('iframe');
+        iframe.id = 'bgAudioFrame';
+        iframe.style.display = 'none';
+        iframe.src = src;
+        iframe.allow = 'autoplay';
+        document.body.appendChild(iframe);
+      }
+
+      document.getElementById('bg-audio-status').textContent = `Audio latar: ${title} (Sedang diputar)`;
+      updateButtonStates(videoId);
+    }
+
+    function stopBackgroundAudio() {
+      const iframe = document.getElementById('bgAudioFrame');
+      if (iframe) {
+        iframe.remove();
+      }
+
+      document.getElementById('bg-audio-status').textContent = 'Audio latar: Tidak aktif';
+      bgAudioId = null;
+      bgAudioActive = false;
+      updateButtonStates(null);
+    }
+
+    function updateButtonStates(activeId) {
+      const resultDivs = document.getElementById('results').querySelectorAll('button');
+      resultDivs.forEach(btn => btn.classList.remove('bg-on'));
+      if (activeId) {
+        const containers = document.getElementById('results').children;
+        for (let i = 0; i < containers.length; i++) {
+          const container = containers[i];
+          const videoId = playlist[i]?.videoId;
+          if (videoId === activeId) {
+            const btn = container.querySelector('button');
+            if (btn) btn.classList.add('bg-on');
+          }
+        }
+      }
+    }
+
+    // PWA Service Worker
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js')
+          .then(reg => console.log('Service Worker registered!', reg))
+          .catch(err => console.error('Service Worker failed:', err));
+      });
+    }
+  </script>
+</body>
+</html>
